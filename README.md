@@ -21,7 +21,7 @@ go get github.com/ciricc/vklongpoll
 package main
 
 import (
-    "context"
+	"context"
 	"log"
 	"time"
 
@@ -31,7 +31,7 @@ import (
 )
 
 func main() {
-    exec := executor.New()
+	exec := executor.New()
 
 	getServerRequest := request.New()
 
