@@ -75,8 +75,8 @@ func (v *VkLongPoll) RecvOpt(ctx context.Context, opt *VkLongPollOptions) ([]Upd
 	}
 
 	requestUrl := v.serverUrl
-
 	requestUrlQuery := requestUrl.Query()
+
 	requestUrlQuery.Set("key", v.key)
 	requestUrlQuery.Set("ts", strconv.FormatInt(v.Ts, 10))
 	requestUrlQuery.Set("act", "a_check")
@@ -109,7 +109,7 @@ func (v *VkLongPoll) RecvOpt(ctx context.Context, opt *VkLongPollOptions) ([]Upd
 	failed, _ := jsonparser.GetInt(resBytes, "failed")
 
 	ptsInt, err := jsonparser.GetInt(resBytes, "pts")
-	if err != nil {
+	if err == nil {
 		v.pts = (*Pts)(&ptsInt)
 	} else {
 		ptsStr, _ := jsonparser.GetString(resBytes, "pts")
@@ -147,7 +147,11 @@ func (v *VkLongPoll) RecvOpt(ctx context.Context, opt *VkLongPollOptions) ([]Upd
 	updates := []Update{}
 
 	jsonparser.ArrayEach(updatesBytes, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-		updates = append(updates, value)
+		if dataType == jsonparser.String { // ну вдруг ))
+			updates = append(updates, []byte(`"`+string(value)+`"`))
+		} else {
+			updates = append(updates, value)
+		}
 	})
 
 	return updates, nil

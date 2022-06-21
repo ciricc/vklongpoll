@@ -25,7 +25,7 @@ const ExtraFields Mode = 64
 const ReturnRandomId Mode = 128
 
 // Длительность запроса по умолчанию
-var DefaultWait time.Duration = 90 * time.Second
+var DefaultWait = 90 * time.Second
 
 // Режим работы по умолчанию
 var DefaultMode Mode = 0
@@ -58,6 +58,7 @@ func BuildOptions(opts ...VkLongPollOption) *VkLongPollOptions {
 	for _, option := range opts {
 		option(opt)
 	}
+
 	return opt
 }
 
@@ -76,14 +77,19 @@ func WithWait(wait time.Duration) VkLongPollOption {
 	}
 }
 
+// Суммирует режимы работы
+func SumModes(modes ...Mode) Mode {
+	var s Mode = 0
+	for _, mode := range modes {
+		s = s + mode
+	}
+	return s
+}
+
 // Находит сумму всех указанных режимов и устанавливает в настройки подключения
 func WithModeSum(modes ...Mode) VkLongPollOption {
 	return func(v *VkLongPollOptions) {
-		var s Mode = 0
-		for _, mode := range modes {
-			s = s + mode
-		}
-		WithMode(s)(v)
+		WithMode(SumModes(modes...))(v)
 	}
 }
 
