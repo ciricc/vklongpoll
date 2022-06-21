@@ -6,16 +6,18 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/ciricc/vkapiexecutor/executor"
 	"github.com/ciricc/vkapiexecutor/request"
 	"github.com/ciricc/vklongpoll"
 )
 
-type LpResponseCredentials struct {
+type ServerCredentials struct {
 	Server string `json:"server"`
 	Key    string `json:"key"`
 	Ts     string `json:"ts"`
@@ -27,13 +29,13 @@ type LongPollServerResponse struct {
 	Pts     *string       `json:"pts"`
 }
 
-type LpResponse struct {
-	Response LpResponseCredentials `json:"response"`
+type GetServerResponse struct {
+	Response ServerCredentials `json:"response"`
 }
 
-func getLpResponse(lpServerUrl string) *LpResponse {
-	return &LpResponse{
-		Response: LpResponseCredentials{
+func getServerResponse(lpServerUrl string) *GetServerResponse {
+	return &GetServerResponse{
+		Response: ServerCredentials{
 			Server: lpServerUrl,
 			Key:    "longpoll_server_key",
 			Ts:     "1",
@@ -61,9 +63,9 @@ func TestVkLongPoll(t *testing.T) {
 
 	defer longPollServer.Close()
 
-	expectedLpRes := getLpResponse(longPollServer.URL)
+	expectedGetServerResponse := getServerResponse(longPollServer.URL)
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		res, err := json.Marshal(expectedLpRes)
+		res, err := json.Marshal(expectedGetServerResponse)
 		if err != nil {
 			t.Error(err)
 		}
@@ -207,4 +209,132 @@ func TestVkLongPoll(t *testing.T) {
 			t.Errorf("expected pts nil but got %d", lp.Pts())
 		}
 	})
+}
+
+func TestLongpollContext(t *testing.T) {
+	lpServerResponse := &LongPollServerResponse{
+		Ts:      "2",
+		Updates: make([]interface{}, 0),
+		Pts:     nil,
+	}
+
+	longPollServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		res, err := json.Marshal(lpServerResponse)
+		if err != nil {
+			t.Error(err)
+		}
+
+		log.Println("lp server requested")
+		time.Sleep(2 * time.Second)
+		w.Write(res)
+	}))
+
+	defer longPollServer.Close()
+
+	expectedGetServerResponse := getServerResponse(longPollServer.URL)
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		res, err := json.Marshal(expectedGetServerResponse)
+		if err != nil {
+			t.Error(err)
+		}
+
+		log.Println("api server requested")
+		w.Write(res)
+	}))
+
+	defer apiServer.Close()
+
+	request.DefaultBaseRequestUrl = apiServer.URL
+	exec := executor.New()
+
+	getServerRequest := request.New()
+	lp := vklongpoll.New(exec)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	_, err := lp.Recv(ctx, vklongpoll.WithGetServerRequest(getServerRequest))
+	if err == nil {
+		t.Errorf("expected error but got nil")
+	}
+
+}
+
+func TestLongPollParams(t *testing.T) {
+	lpServerResponse := &LongPollServerResponse{
+		Ts:      "2",
+		Updates: make([]interface{}, 0),
+		Pts:     nil,
+	}
+
+	longPollServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		res, err := json.Marshal(lpServerResponse)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expectedMethod := "GET"
+		if r.Method != expectedMethod {
+			t.Errorf("expected long poll request method %q but got %q", expectedMethod, r.Method)
+		}
+
+		expectedQuery := url.Values{
+			"act":     {"a_check"},
+			"key":     {"longpoll_server_key"},
+			"mode":    {"2"},
+			"ts":      {"1"},
+			"version": {"1"},
+			"wait":    {"43"},
+			"foo":     {"bar"},
+		}.Encode()
+
+		if r.URL.Query().Encode() != expectedQuery {
+			t.Errorf("expected url query: %q but got %q", expectedQuery, r.URL.Query().Encode())
+		}
+
+		log.Println("lp server requested")
+		w.Write(res)
+	}))
+
+	defer longPollServer.Close()
+
+	expectedGetServerResponse := getServerResponse(longPollServer.URL)
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		res, err := json.Marshal(expectedGetServerResponse)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expectedPath := "/get_long_poll_server"
+		if r.URL.Path != expectedPath {
+			t.Errorf("exepcted get server path %q but got %q", expectedPath, r.URL.Path)
+		}
+
+		log.Println("api server requested")
+		w.Write(res)
+	}))
+
+	defer apiServer.Close()
+
+	request.DefaultBaseRequestUrl = apiServer.URL
+	exec := executor.New()
+
+	getServerRequest := request.New()
+	getServerRequest.Method("get_long_poll_server")
+	lp := vklongpoll.New(exec)
+
+	_, err := lp.Recv(context.Background(),
+		vklongpoll.WithGetServerRequest(getServerRequest),
+		vklongpoll.WithMode(vklongpoll.Attachments),
+		vklongpoll.WithWait(43*time.Second),
+		vklongpoll.WithVersion(1),
+		vklongpoll.WithParams(url.Values{
+			"foo": {"bar"},
+		}),
+	)
+
+	if err != nil {
+		t.Error(err)
+	}
 }

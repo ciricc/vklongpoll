@@ -1,6 +1,7 @@
 package vklongpoll
 
 import (
+	"net/url"
 	"time"
 
 	"github.com/ciricc/vkapiexecutor/request"
@@ -38,6 +39,7 @@ type VkLongPollOptions struct {
 	GetServerRequest *request.Request
 	Mode             Mode
 	Version          int
+	Params           url.Values
 }
 
 type VkLongPollOption func(v *VkLongPollOptions)
@@ -90,6 +92,14 @@ func SumModes(modes ...Mode) Mode {
 func WithModeSum(modes ...Mode) VkLongPollOption {
 	return func(v *VkLongPollOptions) {
 		WithMode(SumModes(modes...))(v)
+	}
+}
+
+// Устанавливает кастомные параметры в запрос к Long Poll серверу
+// (перезаписывает уже установленные, вроде ts, mode, wait и т.д)
+func WithParams(params url.Values) VkLongPollOption {
+	return func(v *VkLongPollOptions) {
+		v.Params = params
 	}
 }
 

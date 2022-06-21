@@ -87,6 +87,10 @@ func (v *VkLongPoll) RecvOpt(ctx context.Context, opt *VkLongPollOptions) ([]Upd
 		requestUrlQuery.Set("mode", strconv.Itoa(int(opt.Mode)))
 	}
 
+	for k := range opt.Params {
+		requestUrlQuery.Set(k, opt.Params.Get(k))
+	}
+
 	requestUrl.RawQuery = requestUrlQuery.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", requestUrl.String(), nil)
