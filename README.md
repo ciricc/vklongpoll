@@ -51,11 +51,12 @@ func main() {
 			log.Println("Longpoll timed out!")
 			return
 		default:
-			updates, _, err := lp.Recv(ctx, vklongpoll.WithGetServerRequest(getServerRequest))
+			updates, err := lp.Recv(ctx, vklongpoll.WithGetServerRequest(getServerRequest))
 			if err != nil {
 				log.Println("get updates error", err)
 			} else {
 				log.Println("updates", updates)
+				log.Println("ts", lp.Ts)
 			}
 		}
 	}

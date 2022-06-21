@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/buger/jsonparser"
 	"github.com/ciricc/vkapiexecutor/executor"
@@ -21,7 +22,9 @@ type VkLongPoll struct {
 	HttpClient    *http.Client
 	key           string
 	serverUrl     *url.URL
-	ts            string
+	Ts            int64
+	pts           *Pts
+	mx            *sync.Mutex
 }
 
 type Pts int64
@@ -33,6 +36,7 @@ func New(executor *executor.Executor) *VkLongPoll {
 	lp := VkLongPoll{
 		VkApiExecutor: executor,
 		HttpClient:    http.DefaultClient,
+		mx:            &sync.Mutex{},
 	}
 
 	if executor == nil {
@@ -42,33 +46,39 @@ func New(executor *executor.Executor) *VkLongPoll {
 	return &lp
 }
 
+// Возвращает последнее полученное значение pts
+func (v *VkLongPoll) Pts() *Pts {
+	return v.pts
+}
+
 // Делает запрос на получение списка новых событий
 // Возвращает список событий в [][]byte, а также значение поля pts, если оно есть в ответе
 // Автоматически переподключается в случае ошибки
-func (v *VkLongPoll) Recv(ctx context.Context, opts ...VkLongPollOption) ([]Update, *Pts, error) {
-	opt := NewOptions()
-	for _, option := range opts {
-		option(opt)
-	}
-
-	return v.RecvOpt(ctx, opt)
+//
+// Чтение событий только синхронное, чтобы иметь всегда определенный ts (последний)
+// Если есть задача читать события одновременно на один и тот же источник -
+// лучше всего создать новое поделючение Long Poll
+func (v *VkLongPoll) Recv(ctx context.Context, opts ...VkLongPollOption) ([]Update, error) {
+	return v.RecvOpt(ctx, BuildOptions(opts...))
 }
 
 // То же самое, что Recv, но опции - ссылка на структуру
-func (v *VkLongPoll) RecvOpt(ctx context.Context, opt *VkLongPollOptions) ([]Update, *Pts, error) {
+func (v *VkLongPoll) RecvOpt(ctx context.Context, opt *VkLongPollOptions) ([]Update, error) {
+	v.mx.Lock()
+	defer v.mx.Unlock()
 
 	if v.serverUrl == nil {
 		err := v.updateServer(ctx, opt)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
 	requestUrl := v.serverUrl
-	requestUrlQuery := requestUrl.Query()
 
+	requestUrlQuery := requestUrl.Query()
 	requestUrlQuery.Set("key", v.key)
-	requestUrlQuery.Set("ts", v.ts)
+	requestUrlQuery.Set("ts", strconv.FormatInt(v.Ts, 10))
 	requestUrlQuery.Set("act", "a_check")
 	requestUrlQuery.Set("wait", strconv.Itoa(int(opt.Wait.Seconds())))
 	requestUrlQuery.Set("version", strconv.Itoa(opt.Version))
@@ -79,24 +89,36 @@ func (v *VkLongPoll) RecvOpt(ctx context.Context, opt *VkLongPollOptions) ([]Upd
 
 	requestUrl.RawQuery = requestUrlQuery.Encode()
 
-	res, err := v.HttpClient.Get(requestUrl.String())
+	req, err := http.NewRequestWithContext(ctx, "GET", requestUrl.String(), nil)
 	if err != nil {
-		return nil, nil, fmt.Errorf("poll request error: %s; requestUrl=%s", err.Error(), requestUrl)
+		return nil, err
+	}
+
+	res, err := v.HttpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("poll request error: %s; requestUrl=%s", err.Error(), requestUrl)
 	}
 
 	defer res.Body.Close()
 
 	resBytes, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read response error: %s", err.Error())
+		return nil, fmt.Errorf("read response error: %s", err.Error())
 	}
 
 	failed, _ := jsonparser.GetInt(resBytes, "failed")
 
-	var pts Pts
 	ptsInt, err := jsonparser.GetInt(resBytes, "pts")
 	if err != nil {
-		pts = Pts(ptsInt)
+		v.pts = (*Pts)(&ptsInt)
+	} else {
+		ptsStr, _ := jsonparser.GetString(resBytes, "pts")
+		ptsInt, err := strconv.ParseInt(ptsStr, 10, 64)
+		if err == nil {
+			v.pts = (*Pts)(&ptsInt)
+		} else {
+			v.pts = nil
+		}
 	}
 
 	if failed != 0 {
@@ -104,42 +126,41 @@ func (v *VkLongPoll) RecvOpt(ctx context.Context, opt *VkLongPollOptions) ([]Upd
 		case 2, 3:
 			err = v.updateServer(ctx, opt)
 			if err != nil {
-				return nil, &pts, err
+				return nil, err
 			}
 		case 4:
-			return nil, &pts, fmt.Errorf("invalid version")
+			return nil, fmt.Errorf("invalid version")
 		}
 	}
 
-	v.ts, err = getTs(resBytes)
+	v.Ts, err = getTs(resBytes)
+
 	if err != nil {
-		return nil, &pts, err
+		return nil, err
 	}
 
 	updatesBytes, _, _, err := jsonparser.Get(resBytes, "updates")
 	if err != nil {
-		return nil, &pts, err
+		return nil, err
 	}
 
 	updates := []Update{}
+
 	jsonparser.ArrayEach(updatesBytes, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
 		updates = append(updates, value)
 	})
 
-	return updates, &pts, nil
+	return updates, nil
 }
 
 // Возвращает поле ts (если число - преобразует в строку) из json
-func getTs(b []byte) (string, error) {
+func getTs(b []byte) (int64, error) {
 	tsInt, err := jsonparser.GetInt(b, "ts")
 	if err != nil {
-		ts, err := jsonparser.GetString(b, "ts")
-		if err != nil {
-			return "", err
-		}
-		return ts, nil
+		ts, _ := jsonparser.GetString(b, "ts")
+		return strconv.ParseInt(ts, 10, 64)
 	}
-	return strconv.FormatInt(tsInt, 10), nil
+	return tsInt, nil
 }
 
 // Обновляет настройки Long Poll соединения
@@ -178,9 +199,10 @@ func (v *VkLongPoll) updateServer(ctx context.Context, opt *VkLongPollOptions) e
 		return errors.New("parse server url error: " + err.Error() + "; serverUrl=" + serverUrl)
 	}
 
-	v.ts, err = getTs(res)
+	v.Ts, err = getTs(res)
 	if err != nil {
 		return err
 	}
+
 	return nil
 }

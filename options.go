@@ -52,6 +52,15 @@ func NewOptions() *VkLongPollOptions {
 	}
 }
 
+// Суммирует все функциональные опции и возвращает структуру опций
+func BuildOptions(opts ...VkLongPollOption) *VkLongPollOptions {
+	opt := NewOptions()
+	for _, option := range opts {
+		option(opt)
+	}
+	return opt
+}
+
 // Устанавливает запрос VK API, который будет отправляться для получения URL сервера (messages.getLongPollServer, например)
 // Используйте заголовки и кастомные параметры запроса, если есть такая необходимость
 func WithGetServerRequest(req *request.Request) VkLongPollOption {
