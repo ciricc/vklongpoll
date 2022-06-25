@@ -83,6 +83,10 @@ func TestVkLongPoll(t *testing.T) {
 	getServerRequest := request.New()
 	getServerRequest.Method("get_server_url")
 
+	serverUpdater := vklongpoll.WithServerUpdater(
+		vklongpoll.UniversalServerUpdater(getServerRequest, exec),
+	)
+
 	t.Run("returns error if no get server request specified", func(t *testing.T) {
 		_, err := lp.Recv(context.Background())
 		if err == nil {
@@ -91,20 +95,20 @@ func TestVkLongPoll(t *testing.T) {
 	})
 
 	// Sync and save server
-	_, err := lp.Recv(context.Background(), vklongpoll.WithGetServerRequest(getServerRequest))
+	_, err := lp.Recv(context.Background(), serverUpdater)
 	if err != nil {
 		t.Error(err)
 	}
 
 	t.Run("no need request get server after server got", func(t *testing.T) {
-		_, err := lp.Recv(context.Background())
+		_, err := lp.Recv(context.Background(), serverUpdater)
 		if err != nil {
 			t.Error(err)
 		}
 	})
 
 	t.Run("lp returns zero updates", func(t *testing.T) {
-		updates, err := lp.Recv(context.Background())
+		updates, err := lp.Recv(context.Background(), serverUpdater)
 		if err != nil {
 			t.Error(err)
 		}
@@ -114,7 +118,7 @@ func TestVkLongPoll(t *testing.T) {
 	})
 
 	t.Run("lp updated ts", func(t *testing.T) {
-		_, err := lp.Recv(context.Background(), vklongpoll.WithGetServerRequest(getServerRequest))
+		_, err := lp.Recv(context.Background(), serverUpdater)
 		if err != nil {
 			t.Error(err)
 		}
@@ -143,7 +147,7 @@ func TestVkLongPoll(t *testing.T) {
 			Updates: expectedUpdates,
 		}
 
-		updates, err := lp.Recv(context.Background(), vklongpoll.WithGetServerRequest(getServerRequest))
+		updates, err := lp.Recv(context.Background(), serverUpdater)
 		if err != nil {
 			t.Error(err)
 		}
@@ -167,7 +171,7 @@ func TestVkLongPoll(t *testing.T) {
 			Ts:      "3",
 			Updates: make([]interface{}, 0),
 		}
-		_, err := lp.Recv(context.Background())
+		_, err := lp.Recv(context.Background(), serverUpdater)
 		if err != nil {
 			t.Error(err)
 		}
@@ -183,7 +187,7 @@ func TestVkLongPoll(t *testing.T) {
 			Updates: make([]interface{}, 0),
 			Pts:     &ptsVal,
 		}
-		_, err := lp.Recv(context.Background())
+		_, err := lp.Recv(context.Background(), serverUpdater)
 		if err != nil {
 			t.Error(err)
 		}
@@ -201,7 +205,7 @@ func TestVkLongPoll(t *testing.T) {
 			Ts:      "3",
 			Updates: make([]interface{}, 0),
 		}
-		_, err := lp.Recv(context.Background())
+		_, err := lp.Recv(context.Background(), serverUpdater)
 		if err != nil {
 			t.Error(err)
 		}
@@ -248,12 +252,11 @@ func TestLongpollContext(t *testing.T) {
 	request.DefaultBaseRequestUrl = apiServer.URL
 	exec := executor.New()
 
-	getServerRequest := request.New()
 	lp := vklongpoll.New(exec)
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	_, err := lp.Recv(ctx, vklongpoll.WithGetServerRequest(getServerRequest))
+	_, err := lp.Recv(ctx)
 	if err == nil {
 		t.Errorf("expected error but got nil")
 	}
@@ -292,7 +295,6 @@ func TestLongPollParams(t *testing.T) {
 			t.Errorf("expected url query: %q but got %q", expectedQuery, r.URL.Query().Encode())
 		}
 
-		log.Println("lp server requested")
 		w.Write(res)
 	}))
 
@@ -311,7 +313,6 @@ func TestLongPollParams(t *testing.T) {
 			t.Errorf("exepcted get server path %q but got %q", expectedPath, r.URL.Path)
 		}
 
-		log.Println("api server requested")
 		w.Write(res)
 	}))
 
@@ -324,14 +325,16 @@ func TestLongPollParams(t *testing.T) {
 	getServerRequest.Method("get_long_poll_server")
 	lp := vklongpoll.New(exec)
 
+	serverUpdater := vklongpoll.WithServerUpdater(vklongpoll.UniversalServerUpdater(getServerRequest, exec))
+
 	_, err := lp.Recv(context.Background(),
-		vklongpoll.WithGetServerRequest(getServerRequest),
 		vklongpoll.WithMode(vklongpoll.Attachments),
 		vklongpoll.WithWait(43*time.Second),
 		vklongpoll.WithVersion(1),
-		vklongpoll.WithParams(url.Values{
-			"foo": {"bar"},
+		vklongpoll.WithParamsMerger(func(u url.Values) {
+			u.Set("foo", "bar")
 		}),
+		serverUpdater,
 	)
 
 	if err != nil {

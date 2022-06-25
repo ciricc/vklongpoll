@@ -1,10 +1,9 @@
 package vklongpoll
 
 import (
+	"context"
 	"net/url"
 	"time"
-
-	"github.com/ciricc/vkapiexecutor/request"
 )
 
 // Режим работы
@@ -34,12 +33,21 @@ var DefaultMode Mode = 0
 // Версия Long Poll по умолчанию
 var DefaultVersion = 3
 
+type ServerUpdater func(ctx context.Context) (*ServerCredentials, error)
+
+type ParamsMerger func(u url.Values)
 type VkLongPollOptions struct {
-	Wait             time.Duration
-	GetServerRequest *request.Request
-	Mode             Mode
-	Version          int
-	Params           url.Values
+	Wait          time.Duration
+	ServerUpdater ServerUpdater
+	Mode          Mode
+	Version       int
+	ParamsMerger  ParamsMerger
+}
+
+type ServerCredentials struct {
+	Ts        int64    // Новое значение TS
+	ServerURL *url.URL // Новый URL сервера
+	Key       string   // Новый ключ
 }
 
 type VkLongPollOption func(v *VkLongPollOptions)
@@ -47,10 +55,10 @@ type VkLongPollOption func(v *VkLongPollOptions)
 // Создает опции по умолчанию
 func NewOptions() *VkLongPollOptions {
 	return &VkLongPollOptions{
-		Wait:             DefaultWait,
-		GetServerRequest: nil,
-		Mode:             DefaultMode,
-		Version:          DefaultVersion,
+		Wait:          DefaultWait,
+		ServerUpdater: nil,
+		Mode:          DefaultMode,
+		Version:       DefaultVersion,
 	}
 }
 
@@ -64,11 +72,12 @@ func BuildOptions(opts ...VkLongPollOption) *VkLongPollOptions {
 	return opt
 }
 
-// Устанавливает запрос VK API, который будет отправляться для получения URL сервера (messages.getLongPollServer, например)
-// Используйте заголовки и кастомные параметры запроса, если есть такая необходимость
-func WithGetServerRequest(req *request.Request) VkLongPollOption {
+// Устанавливает обработчик для обновления информации о Long Poll соединении
+// Здесь, например, вы можете делать запрос на messages.getLongPollServer и получить значение ts, key и т.д
+// Если у вас нет цели писать собственный обработчик, то используйте UniversalServerUpdater
+func WithServerUpdater(updater ServerUpdater) VkLongPollOption {
 	return func(v *VkLongPollOptions) {
-		v.GetServerRequest = req
+		v.ServerUpdater = updater
 	}
 }
 
@@ -97,9 +106,9 @@ func WithModeSum(modes ...Mode) VkLongPollOption {
 
 // Устанавливает кастомные параметры в запрос к Long Poll серверу
 // (перезаписывает уже установленные, вроде ts, mode, wait и т.д)
-func WithParams(params url.Values) VkLongPollOption {
+func WithParamsMerger(merger ParamsMerger) VkLongPollOption {
 	return func(v *VkLongPollOptions) {
-		v.Params = params
+		v.ParamsMerger = merger
 	}
 }
 

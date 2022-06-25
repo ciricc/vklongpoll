@@ -8,23 +8,19 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/buger/jsonparser"
 	"github.com/ciricc/vkapiexecutor/executor"
 )
 
-var DefaultExecutor = executor.New()
-
 type VkLongPoll struct {
-	VkApiExecutor *executor.Executor
-	HttpClient    *http.Client
-	key           string
-	serverUrl     *url.URL
-	Ts            int64
-	pts           *Pts
-	mx            *sync.Mutex
+	HttpClient *http.Client
+	key        string
+	serverUrl  *url.URL
+	Ts         int64
+	pts        *Pts
+	mx         *sync.Mutex
 }
 
 type Pts int64
@@ -33,14 +29,10 @@ type Update []byte
 // Создает инстанс лонгполла
 // Принимает executor - структура для отправки запросов к VK API
 func New(executor *executor.Executor) *VkLongPoll {
-	lp := VkLongPoll{
-		VkApiExecutor: executor,
-		HttpClient:    http.DefaultClient,
-		mx:            &sync.Mutex{},
-	}
 
-	if executor == nil {
-		lp.VkApiExecutor = DefaultExecutor
+	lp := VkLongPoll{
+		HttpClient: http.DefaultClient,
+		mx:         &sync.Mutex{},
 	}
 
 	return &lp
@@ -67,6 +59,10 @@ func (v *VkLongPoll) RecvOpt(ctx context.Context, opt *VkLongPollOptions) ([]Upd
 	v.mx.Lock()
 	defer v.mx.Unlock()
 
+	if opt.ServerUpdater == nil {
+		return nil, fmt.Errorf("server updater is nil")
+	}
+
 	if v.serverUrl == nil {
 		err := v.updateServer(ctx, opt)
 		if err != nil {
@@ -87,8 +83,8 @@ func (v *VkLongPoll) RecvOpt(ctx context.Context, opt *VkLongPollOptions) ([]Upd
 		requestUrlQuery.Set("mode", strconv.Itoa(int(opt.Mode)))
 	}
 
-	for k := range opt.Params {
-		requestUrlQuery.Set(k, opt.Params.Get(k))
+	if opt.ParamsMerger != nil {
+		opt.ParamsMerger(requestUrlQuery)
 	}
 
 	requestUrl.RawQuery = requestUrlQuery.Encode()
@@ -161,56 +157,20 @@ func (v *VkLongPoll) RecvOpt(ctx context.Context, opt *VkLongPollOptions) ([]Upd
 	return updates, nil
 }
 
-// Возвращает поле ts (если число - преобразует в строку) из json
-func getTs(b []byte) (int64, error) {
-	tsInt, err := jsonparser.GetInt(b, "ts")
-	if err != nil {
-		ts, _ := jsonparser.GetString(b, "ts")
-		return strconv.ParseInt(ts, 10, 64)
-	}
-	return tsInt, nil
-}
-
 // Обновляет настройки Long Poll соединения
 func (v *VkLongPoll) updateServer(ctx context.Context, opt *VkLongPollOptions) error {
-
-	if opt.GetServerRequest == nil {
-		return errors.New("get server request is undefined in options")
+	if opt.ServerUpdater == nil {
+		return errors.New("server updater is nil")
 	}
 
-	server, err := v.VkApiExecutor.DoRequestCtx(ctx, opt.GetServerRequest)
+	creds, err := opt.ServerUpdater(ctx)
 	if err != nil {
 		return err
 	}
 
-	res, _, _, err := jsonparser.Get(server.Body(), "response")
-	if err != nil {
-		return err
-	}
-
-	v.key, err = jsonparser.GetString(res, "key")
-	if err != nil {
-		return err
-	}
-
-	serverUrl, err := jsonparser.GetString(res, "server")
-	if err != nil {
-		return err
-	}
-
-	if !strings.HasPrefix(serverUrl, "https://") && !strings.HasPrefix(serverUrl, "http://") {
-		serverUrl = "https://" + serverUrl
-	}
-
-	v.serverUrl, err = url.Parse(serverUrl)
-	if err != nil {
-		return errors.New("parse server url error: " + err.Error() + "; serverUrl=" + serverUrl)
-	}
-
-	v.Ts, err = getTs(res)
-	if err != nil {
-		return err
-	}
+	v.key = creds.Key
+	v.serverUrl = creds.ServerURL
+	v.Ts = creds.Ts
 
 	return nil
 }

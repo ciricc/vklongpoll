@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ciricc/vkapiexecutor/request"
 	"github.com/ciricc/vklongpoll"
 )
 
@@ -19,26 +18,27 @@ func TestBuildOptions(t *testing.T) {
 	})
 
 	t.Run("correct sum all options", func(t *testing.T) {
-		req1 := request.New()
-		req2 := request.New()
-
 		waitOpt := 10 * time.Minute
 		versionOpt := 6
 		modeOpt := vklongpoll.Attachments
+		serverUpdater := vklongpoll.UniversalServerUpdater(nil, nil)
 
 		opt := vklongpoll.BuildOptions(
-			vklongpoll.WithGetServerRequest(req1),
-			vklongpoll.WithGetServerRequest(req2),
 			vklongpoll.WithMode(modeOpt),
 			vklongpoll.WithVersion(versionOpt),
 			vklongpoll.WithWait(waitOpt),
 		)
 
 		expectedOpt := vklongpoll.NewOptions()
-		expectedOpt.GetServerRequest = req2
 		expectedOpt.Mode = modeOpt
 		expectedOpt.Version = versionOpt
 		expectedOpt.Wait = waitOpt
+
+		opt2 := vklongpoll.BuildOptions(vklongpoll.WithServerUpdater(serverUpdater))
+
+		if opt2.ServerUpdater == nil {
+			t.Errorf("expected server updater non-nil")
+		}
 
 		if !reflect.DeepEqual(expectedOpt, opt) {
 			t.Errorf("expected %v options but got %v\n", expectedOpt, opt)
