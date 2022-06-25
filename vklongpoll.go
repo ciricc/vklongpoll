@@ -138,7 +138,7 @@ func (v *VkLongPoll) RecvOpt(ctx context.Context, opt *VkLongPollOptions) ([]Upd
 		return nil, err
 	}
 
-	updatesBytes, _, _, err := jsonparser.Get(resBytes, "updates")
+	updatesBytes, _, _, err := jsonparser.Get(resBytes, opt.UpdatesJsonPath...)
 	if err != nil {
 		return nil, err
 	}

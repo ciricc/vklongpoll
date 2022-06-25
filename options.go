@@ -33,15 +33,19 @@ var DefaultMode Mode = 0
 // Версия Long Poll по умолчанию
 var DefaultVersion = 3
 
+// Путь параметра, где в ответе сервера хранятся обновления
+var DefaultUpdatesJsonPath = []string{"updates"}
+
 type ServerUpdater func(ctx context.Context) (*ServerCredentials, error)
 
 type ParamsMerger func(u url.Values)
 type VkLongPollOptions struct {
-	Wait          time.Duration
-	ServerUpdater ServerUpdater
-	Mode          Mode
-	Version       int
-	ParamsMerger  ParamsMerger
+	Wait            time.Duration
+	ServerUpdater   ServerUpdater
+	Mode            Mode
+	Version         int
+	ParamsMerger    ParamsMerger
+	UpdatesJsonPath []string
 }
 
 type ServerCredentials struct {
@@ -55,10 +59,11 @@ type VkLongPollOption func(v *VkLongPollOptions)
 // Создает опции по умолчанию
 func NewOptions() *VkLongPollOptions {
 	return &VkLongPollOptions{
-		Wait:          DefaultWait,
-		ServerUpdater: nil,
-		Mode:          DefaultMode,
-		Version:       DefaultVersion,
+		Wait:            DefaultWait,
+		ServerUpdater:   nil,
+		Mode:            DefaultMode,
+		Version:         DefaultVersion,
+		UpdatesJsonPath: DefaultUpdatesJsonPath,
 	}
 }
 
@@ -116,6 +121,13 @@ func WithParamsMerger(merger ParamsMerger) VkLongPollOption {
 func WithMode(mode Mode) VkLongPollOption {
 	return func(v *VkLongPollOptions) {
 		v.Mode = mode
+	}
+}
+
+// Устанавливает путь параметра updates в JSON схеме
+func WithUpdatesJsonPath(path ...string) VkLongPollOption {
+	return func(v *VkLongPollOptions) {
+		v.UpdatesJsonPath = path
 	}
 }
 
