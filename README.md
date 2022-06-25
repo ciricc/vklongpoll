@@ -40,10 +40,14 @@ func main() {
 
 	getServerRequest.Method("groups.getLongPollServer")
 
-	lp := vklongpoll.New(exec)
+	lp := vklongpoll.New()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+
+	serverUpdater := vklongpoll.WithServerUpdater(
+		vklongpoll.UniversalServerUpdater(getServerRequest, exec),
+	)
 
 	for {
 		select {
@@ -51,7 +55,7 @@ func main() {
 			log.Println("Longpoll timed out!")
 			return
 		default:
-			updates, err := lp.Recv(ctx, vklongpoll.WithGetServerRequest(getServerRequest))
+			updates, err := lp.Recv(ctx, serverUpdater)
 			if err != nil {
 				log.Println("get updates error", err)
 			} else {

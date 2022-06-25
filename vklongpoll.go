@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/buger/jsonparser"
-	"github.com/ciricc/vkapiexecutor/executor"
 )
 
 type VkLongPoll struct {
@@ -28,7 +27,7 @@ type Update []byte
 
 // Создает инстанс лонгполла
 // Принимает executor - структура для отправки запросов к VK API
-func New(executor *executor.Executor) *VkLongPoll {
+func New() *VkLongPoll {
 
 	lp := VkLongPoll{
 		HttpClient: http.DefaultClient,

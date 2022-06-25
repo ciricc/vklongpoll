@@ -78,7 +78,7 @@ func TestVkLongPoll(t *testing.T) {
 	request.DefaultBaseRequestUrl = apiServer.URL
 	exec := executor.New()
 
-	lp := vklongpoll.New(exec)
+	lp := vklongpoll.New()
 
 	getServerRequest := request.New()
 	getServerRequest.Method("get_server_url")
@@ -250,13 +250,17 @@ func TestLongpollContext(t *testing.T) {
 	defer apiServer.Close()
 
 	request.DefaultBaseRequestUrl = apiServer.URL
-	exec := executor.New()
 
-	lp := vklongpoll.New(exec)
+	exec := executor.New()
+	serverUpdater := vklongpoll.WithServerUpdater(
+		vklongpoll.UniversalServerUpdater(request.New(), exec),
+	)
+
+	lp := vklongpoll.New()
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	_, err := lp.Recv(ctx)
+	_, err := lp.Recv(ctx, serverUpdater)
 	if err == nil {
 		t.Errorf("expected error but got nil")
 	}
@@ -323,7 +327,7 @@ func TestLongPollParams(t *testing.T) {
 
 	getServerRequest := request.New()
 	getServerRequest.Method("get_long_poll_server")
-	lp := vklongpoll.New(exec)
+	lp := vklongpoll.New()
 
 	serverUpdater := vklongpoll.WithServerUpdater(vklongpoll.UniversalServerUpdater(getServerRequest, exec))
 
